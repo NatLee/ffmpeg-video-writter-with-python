@@ -1,0 +1,5 @@
+.git
+docs
+**/__pycache__
+*.mp4
+*.gif
