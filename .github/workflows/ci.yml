@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    # The same image you get locally with: docker build -f tests/Dockerfile .
+    # Python 3.8 comes with Debian 12 and ffmpeg 5.1; 3.12 and 3.14 with Debian 13 and ffmpeg 7.1.
+    name: Linux · Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.8", "3.12", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the test image (Python + ffmpeg)
+        run: docker build --build-arg PYTHON=${{ matrix.python }} -f tests/Dockerfile -t ffmpeg-video-writter-test .
+      - name: Run the tests
+        run: docker run --rm ffmpeg-video-writter-test
+
+  windows:
+    # Windows reports a broken pipe differently (EINVAL instead of EPIPE), so test it there too.
+    name: Windows · Python 3.12
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install ffmpeg
+        run: choco install ffmpeg --no-progress -y
+      - name: Install the package
+        run: python -m pip install ".[test]" opencv-python-headless
+      - name: Run the tests
+        run: |
+          ffmpeg -version | Select-Object -First 1
+          python -m pytest -q -p no:cacheprovider
