@@ -130,3 +130,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Videos and GIFs the examples write when run from the repo root
+/*.mp4
+/*.gif

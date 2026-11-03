@@ -1,28 +1,69 @@
+"""The original 2020 class, kept so ``from FFmpegVideoWritter import FFmpegVideoWritter`` still works.
+
+``FFmpegVideoWritter`` reads one video and writes another: ``get_frame()`` gives you the next
+frame of ``in_filename`` (resampled to ``fps``) and ``write()`` appends a frame to
+``out_filename``. It is now a thin wrapper around ``ffmpeg_video_writer.VideoReader`` and
+``VideoWriter``, so it gets their frame checks and real error messages.
+
+Compatibility decisions, kept in this one file on purpose:
+
+* The output is encoded the way the 2020 version did it: ffmpeg's default encoder for the file
+  extension, no forced pixel format, no padding, and the original ``-qscale:v 0.01`` option.
+  For .mp4 that is H.264 in 4:4:4 colour, which some players (browsers, QuickTime) refuse to
+  play. ``VideoWriter`` defaults to yuv420p instead; switching this class over would change the
+  files existing scripts produce, so it is left for the maintainer to decide.
+* Bugs fixed on the way: the output now has the requested frame rate (it used to be written at
+  ffmpeg's default 25 fps, so the video played too slowly), the last partial second of the input
+  is no longer cut off, ``close()`` no longer hangs when frames were left unread,
+  ``output_to_gif()`` works without an argument, gray input works, and sources without a frame
+  count (mkv, webm) open.
+* ``output_to_gif()`` now builds a colour palette from the video first (``to_gif``): cleaner
+  colours and roughly half the file size of ffmpeg's plain GIF conversion.
+
+This file can go once nobody imports ``FFmpegVideoWritter`` any more.
 """
-Class FFmpeg video writter
-"""
-import ffmpeg
+
+from __future__ import annotations
+
+from typing import Optional
+
 import numpy as np
 
-class FFmpegVideoWritter():
+from ffmpeg_video_writer import VideoReader, VideoWriter, to_gif
+
+#: The only pipe format that carries numpy frames.
+PIPE_FORMAT = "rawvideo"
+
+#: Output options of the 2020 version. libx264 ignores qscale; mpeg4-family encoders (.avi) use
+#: it as "best quality".
+LEGACY_OUTPUT_ARGS = ("-qscale:v", "0.01")
+
+
+class FFmpegVideoWritter:
     """FFmpeg video writter
-    ...
+
     Attributes
     ----------
         in_filename: str
             your input file name
         out_filename: str
             your output file name
-        fps: float
-            frame per second
         video_format: str
-            video format
+            pipe format, must be 'rawvideo'
         input_pix_fmt: str
-            input video format
+            frame layout: 'rgb24' (default), 'bgr24', 'rgba', 'bgra' or 'gray'
+        input_width, input_height: int
+            size of the input frames
+        input_frames: int
+            number of frames in the input
+        input_length: int
+            input length in whole seconds
+        output_frames: int
+            about how many frames get_frame() returns at the requested fps
     Methods
     ----------
         get_frame
-            return a frame from video
+            return a frame from video, or None at the end
         write(frame=np.ndarray)
             write a frame into file
         close
@@ -31,84 +72,71 @@ class FFmpegVideoWritter():
             get a gif output
     """
 
-    def __init__(self, in_filename, out_filename, fps=27., video_format='rawvideo', input_pix_fmt='rgb24'):
+    def __init__(
+        self,
+        in_filename: str,
+        out_filename: str,
+        fps: float = 27.0,
+        video_format: str = PIPE_FORMAT,
+        input_pix_fmt: str = "rgb24",
+    ) -> None:
+        if video_format != PIPE_FORMAT:
+            raise ValueError(
+                f"video_format must be {PIPE_FORMAT!r}: numpy frames travel through the pipe as"
+                f" raw pixels (got {video_format!r})"
+            )
         self.in_filename = in_filename
         self.out_filename = out_filename
         self.video_format = video_format
         self.input_pix_fmt = input_pix_fmt
 
-        probe = ffmpeg.probe(self.in_filename)
-        video_stream = next((stream for stream in probe['streams'] if stream['codec_type'] == 'video'), None)
-        self.input_width = int(video_stream['width'])
-        self.input_height = int(video_stream['height'])
-        self.input_frames = int(video_stream['nb_frames'])
-        self.input_length = int(self.input_frames/eval(video_stream['avg_frame_rate']))
-        self.output_frames = int(fps*self.input_length)
+        self._reader = VideoReader(in_filename, fps=fps, pixel_format=input_pix_fmt)
+        info = self._reader.info
+        self.input_width = info.width
+        self.input_height = info.height
+        self.input_frames = info.frames or 0
+        self.input_length = int(self.input_frames / info.fps) if info.fps else 0
+        self.output_frames = self._reader.frame_count or 0
 
-        self.__input_process = (
-            ffmpeg
-            .input(self.in_filename)
-            .filter('fps', fps=fps, round='up')
-            .output('pipe:', format=self.video_format, pix_fmt=self.input_pix_fmt, vframes=self.output_frames)
-            .run_async(pipe_stdout=True)
+        self._writer = VideoWriter(
+            out_filename,
+            fps=fps,
+            pixel_format=input_pix_fmt,
+            codec=None,
+            output_pixel_format=None,
+            pad_to_even=False,
+            output_args=LEGACY_OUTPUT_ARGS,
         )
 
-        self.__output_process = None
-        self.__INITIAL_OUTPUT_PROCESS = False
-
-
-    def get_frame(self):
+    def get_frame(self) -> Optional[np.ndarray]:
         """Get a frame from video"""
-        in_bytes = self.__input_process.stdout.read(self.input_width * self.input_height * 3)
-        if not in_bytes:
-            return None
-        in_frame = (
-            np
-            .frombuffer(in_bytes, np.uint8)
-            .reshape([self.input_height, self.input_width, 3])
-        )
-        return in_frame
-    def write(self, frame):
+        return self._reader.read()
+
+    def write(self, frame: np.ndarray) -> bool:
         """Write a frame"""
-        height, width, _ = frame.shape
-        if not self.__INITIAL_OUTPUT_PROCESS:
-            self.__output_process = (
-                ffmpeg
-                .input('pipe:', format=self.video_format, pix_fmt=self.input_pix_fmt, s='{}x{}'.format(width, height))
-                .output(self.out_filename, **{'qscale:v': 0.01}) # 0.01-255 lower has higher quality
-                .overwrite_output()
-                .run_async(pipe_stdin=True)
-            )
-            self.__INITIAL_OUTPUT_PROCESS = True
-        self.__output_process.stdin.write(
-            frame
-            .astype(np.uint8)
-            .tobytes()
-        )
+        self._writer.write(frame)
         return True
 
-
-    def close(self):
+    def close(self) -> None:
         """Release the resource"""
-        self.__output_process.stdin.close()
-        self.__input_process.wait()
-        self.__output_process.wait()
+        try:
+            self._writer.close()
+        finally:
+            self._reader.close()
 
-
-    def output_to_gif(self, gif_filename: None):
-        """Get a gif output"""
-        if gif_filename is None:
-            (
-                ffmpeg
-                .input(self.out_filename)
-                .output(self.out_filename + '.gif')
-                .run(overwrite_output=True)
-            )
-        else:
-            (
-                ffmpeg
-                .input(self.out_filename)
-                .output(gif_filename)
-                .run(overwrite_output=True)
-            )
+    def output_to_gif(self, gif_filename: Optional[str] = None) -> bool:
+        """Get a gif output (default name: the output file name + '.gif')"""
+        to_gif(self.out_filename, gif_filename or self.out_filename + ".gif")
         return True
+
+    def __enter__(self) -> "FFmpegVideoWritter":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        if exc_type is None:
+            self.close()
+            return
+        try:
+            self._writer.__exit__(exc_type, exc, tb)
+        finally:
+            self._reader.close()
