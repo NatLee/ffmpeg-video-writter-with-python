@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ffmpeg-video-writter"
+version = "0.1.0"
+description = "Write numpy frames to a video with ffmpeg, and get a clear Python error instead of a silent quit when something is wrong."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.8"
+authors = [{ name = "Nat Lee" }]
+keywords = ["ffmpeg", "video", "numpy", "opencv", "videowriter"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Video :: Conversion",
+    "Intended Audience :: Developers",
+]
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/NatLee/ffmpeg-video-writter-with-python"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["ffmpeg_video_writer.py", "FFmpegVideoWritter.py"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error"]

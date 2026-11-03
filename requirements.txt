@@ -1,3 +1,0 @@
-ffmpeg-python
-opencv-python
-numpy
