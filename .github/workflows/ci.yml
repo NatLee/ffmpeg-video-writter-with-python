@@ -38,10 +38,17 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install ffmpeg
-        run: choco install ffmpeg --no-progress -y
+        # The Chocolatey feed sometimes answers 504, and choco then reports "installed 0/0
+        # packages" with exit code 0. Retry, and fail this step if ffmpeg still is not there.
+        run: |
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            choco install ffmpeg --no-progress -y
+            if (Get-Command ffmpeg -ErrorAction SilentlyContinue) { break }
+            Write-Host "ffmpeg is not installed yet (attempt $attempt of 3)"
+            Start-Sleep -Seconds (30 * $attempt)
+          }
+          ffmpeg -version | Select-Object -First 1
       - name: Install the package
         run: python -m pip install ".[test]" opencv-python-headless
       - name: Run the tests
-        run: |
-          ffmpeg -version | Select-Object -First 1
-          python -m pytest -q -p no:cacheprovider
+        run: python -m pytest -q -p no:cacheprovider
