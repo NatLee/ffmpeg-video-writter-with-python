@@ -7,11 +7,12 @@ frame of ``in_filename`` (resampled to ``fps``) and ``write()`` appends a frame 
 
 Compatibility decisions, kept in this one file on purpose:
 
-* The output is encoded the way the 2020 version did it: ffmpeg's default encoder for the file
-  extension, no forced pixel format, no padding, and the original ``-qscale:v 0.01`` option.
-  For .mp4 that is H.264 in 4:4:4 colour, which some players (browsers, QuickTime) refuse to
-  play. ``VideoWriter`` defaults to yuv420p instead; switching this class over would change the
-  files existing scripts produce, so it is left for the maintainer to decide.
+* Changed in 1.0.0, approved by the maintainer: the output is stored as yuv420p, like
+  ``VideoWriter``, so its .mp4 files play in browsers, QuickTime and phones. Up to 0.1.0 ffmpeg
+  chose the pixel format itself, which for RGB frames meant 4:4:4 H.264 that many players refuse.
+  yuv420p needs an even width and height, so odd-sized frames now get one black row/column.
+* Still as in 2020: the encoder is the one ffmpeg picks for the file extension (H.264 for .mp4,
+  mpeg4 for .avi, VP9 for .webm), with the original ``-qscale:v 0.01`` quality option.
 * Bugs fixed on the way: the output now has the requested frame rate (it used to be written at
   ffmpeg's default 25 fps, so the video played too slowly), the last partial second of the input
   is no longer cut off, ``close()`` no longer hangs when frames were left unread,
@@ -34,8 +35,8 @@ from ffmpeg_video_writer import VideoReader, VideoWriter, to_gif
 #: The only pipe format that carries numpy frames.
 PIPE_FORMAT = "rawvideo"
 
-#: Output options of the 2020 version. libx264 ignores qscale; mpeg4-family encoders (.avi) use
-#: it as "best quality".
+#: The 2020 quality option. libx264 ignores it; mpeg4-family encoders (.avi) read it as
+#: "best quality", and their output would turn blurry without it.
 LEGACY_OUTPUT_ARGS = ("-qscale:v", "0.01")
 
 
@@ -98,13 +99,12 @@ class FFmpegVideoWritter:
         self.input_length = int(self.input_frames / info.fps) if info.fps else 0
         self.output_frames = self._reader.frame_count or 0
 
+        # yuv420p and even padding come from VideoWriter's defaults (see the module docstring).
         self._writer = VideoWriter(
             out_filename,
             fps=fps,
             pixel_format=input_pix_fmt,
             codec=None,
-            output_pixel_format=None,
-            pad_to_even=False,
             output_args=LEGACY_OUTPUT_ARGS,
         )
 
