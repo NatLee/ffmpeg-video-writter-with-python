@@ -53,17 +53,27 @@ def test_attributes(sample, tmp_path):
     copy_all(ffvw)
 
 
-def test_keeps_the_2020_encoding(sample, tmp_path):
-    # Compatibility decision (see FFmpegVideoWritter.py): ffmpeg's own choice of pixel format,
-    # which is 4:4:4 for RGB input, and no padding of odd sizes.
+def test_mp4_is_h264_yuv420p_and_odd_sizes_are_padded(sample, tmp_path):
+    # Default change in 1.0.0, approved by the maintainer: up to 0.1.0 this was 4:4:4 H.264
+    # ("High 4:4:4 Predictive", rejected by browsers) and odd sizes were kept as they were.
     out = str(tmp_path / "odd.mp4")
     ffvw = FFmpegVideoWritter(str(sample), out)
     for _ in range(3):
         ffvw.write(ffvw.get_frame()[:-1, :-1])  # 319x239
     ffvw.close()
     stream = video_stream(out)
-    assert stream["pix_fmt"] == "yuv444p"
-    assert (stream["width"], stream["height"]) == (WIDTH - 1, HEIGHT - 1)
+    assert (stream["codec_name"], stream["pix_fmt"]) == ("h264", "yuv420p")
+    assert stream["profile"] != "High 4:4:4 Predictive"
+    assert (stream["width"], stream["height"]) == (WIDTH, HEIGHT)  # 319x239 padded to 320x240
+
+
+@pytest.mark.parametrize("extension, codec", [(".avi", "mpeg4"), (".webm", "vp9")])
+def test_encoder_still_follows_the_extension(sample, tmp_path, extension, codec):
+    out = str(tmp_path / f"out{extension}")
+    ffvw = FFmpegVideoWritter(str(sample), out, fps=5)
+    copy_all(ffvw)
+    stream = video_stream(out)
+    assert (stream["codec_name"], stream["pix_fmt"]) == (codec, "yuv420p")
 
 
 def test_output_to_gif_default_name(sample, tmp_path):
