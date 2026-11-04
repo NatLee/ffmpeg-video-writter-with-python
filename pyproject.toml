@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ffmpeg-video-writter"
-version = "0.1.0"
+version = "1.0.0"
 description = "Write numpy frames to a video with ffmpeg, and get a clear Python error instead of a silent quit when something is wrong."
 readme = "README.md"
 license = "MIT"

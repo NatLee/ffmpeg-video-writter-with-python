@@ -258,9 +258,15 @@ the last part of the input is no longer cut off, `close()` does not hang when fr
 unread, `output_to_gif()` works without a name, gray input works, and mkv/webm inputs open. It
 can also be used with `with`.
 
-One thing is kept on purpose: it still encodes the way it did in 2020 (ffmpeg's defaults for the
-file extension, which means 4:4:4 colour for .mp4, plus `-qscale:v 0.01`). If you need files that
-play in a browser, use `VideoWriter`. The demo that used to be `main.py` is now
+> **Default change in 1.0.0 (approved by the maintainer):** `FFmpegVideoWritter` now stores
+> yuv420p, like `VideoWriter`, so its .mp4 files play in browsers, QuickTime and phones. Before,
+> ffmpeg picked 4:4:4 colour for RGB frames ("High 4:4:4 Predictive"), which many players
+> refuse. yuv420p needs even sizes, so a frame with an odd width or height gets one extra black
+> column or row (319x239 is stored as 320x240). The encoder is still the one ffmpeg picks for the
+> file extension (H.264 for .mp4, mpeg4 for .avi, VP9 for .webm), with the old
+> `-qscale:v 0.01` quality option.
+
+The demo that used to be `main.py` is now
 [`examples/draw_rectangles.py`](examples/draw_rectangles.py):
 
 ```bash
